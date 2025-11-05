@@ -95,4 +95,4 @@ with DAG(
     }
 ) as dag:
 
-    etl("keeyong", "weather_forecast_v2", 37.5665, 126.9780, Variable.get("open_weather_api_key"))
+    etl("simhoon1023", "weather_forecast_v2", 37.5665, 126.9780, Variable.get("open_weather_api_key"))

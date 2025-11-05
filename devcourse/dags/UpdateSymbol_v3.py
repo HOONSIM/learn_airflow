@@ -24,6 +24,7 @@ def get_historical_prices(symbol):
 
     for index, row in data.iterrows():
         date = index.strftime('%Y-%m-%d %H:%M:%S')
+
         records.append([date, row["Open"], row["High"], row["Low"], row["Close"], row["Volume"]])
 
     return records
@@ -39,7 +40,8 @@ CREATE TABLE IF NOT EXISTS {schema}.{table} (
     high float,
     low float,
     close float,
-    volume bigint
+    volume bigint,
+    created_date timestamp DEFAULT GETDATE()
 );""")
 
 
@@ -52,26 +54,33 @@ def load(schema, table, records):
         # 원본 테이블이 없으면 생성 - 테이블이 처음 한번 만들어질 때 필요한 코드
         _create_table(cur, schema, table, False)
         # 임시 테이블로 원본 테이블을 복사
-        cur.execute(f"CREATE TEMP TABLE t AS SELECT * FROM {schema}.{table};")
+        create_t_sql = f"""CREATE TEMP TABLE t (LIKE {schema}.{table} INCLUDING DEFAULTS);
+            INSERT INTO t SELECT * FROM {schema}.{table};"""
+        cur.execute(create_t_sql)
         for r in records:
             sql = f"INSERT INTO t VALUES ('{r[0]}', {r[1]}, {r[2]}, {r[3]}, {r[4]}, {r[5]});"
             print(sql)
             cur.execute(sql)
 
-        # 원본 테이블 생성
-        _create_table(cur, schema, table, True)
         # 임시 테이블 내용을 원본 테이블로 복사
-        cur.execute(f"INSERT INTO {schema}.{table} SELECT DISTINCT * FROM t;")
+        cur.execute(f"DELETE FROM {schema}.{table};")
+        cur.execute(f"""INSERT INTO {schema}.{table}
+SELECT date, "open", high, low, close, volume FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY date ORDER BY created_date DESC) seq
+    FROM t
+)
+WHERE seq = 1;""")
         cur.execute("COMMIT;")   # cur.execute("END;")
     except Exception as error:
         print(error)
-        cur.execute("ROLLBACK;") 
+        cur.execute("ROLLBACK;")
         raise
+
     logging.info("load done")
 
 
 with DAG(
-    dag_id = 'UpdateSymbol_v2',
+    dag_id = 'UpdateSymbol_v3',
     start_date = datetime(2023,5,30),
     catchup=False,
     tags=['API'],
@@ -79,4 +88,4 @@ with DAG(
 ) as dag:
 
     results = get_historical_prices("AAPL")
-    load("simhoon1023", "stock_info_v2", results)
+    load("simhoon1023", "stock_info_v3", results)
